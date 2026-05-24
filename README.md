@@ -31,25 +31,16 @@ ThreatLens AI is a full-stack security tool that scans any public website for OW
 
 ## 🏗️ Architecture
 
-┌─────────────────────────────────────────────────┐
-│                  React Frontend                 │
-│     Dashboard · Scanner · Charts · PDF Export   │
-└─────────────────┬───────────────────────────────┘
-│ REST API (JWT Auth)
-┌─────────────────▼───────────────────────────────┐
-│              Node.js + Express Backend          │
-│    Auth · Rate Limiting · Helmet · Scan Routes  │
-└─────────────────┬───────────────────────────────┘
-│ spawn process
-┌─────────────────▼───────────────────────────────┐
-│              Python OWASP Scanner               │
-│  Headers · HTTPS · Cookies · Redirects · Server │
-└─────────────────┬───────────────────────────────┘
-│ API call
-┌─────────────────▼───────────────────────────────┐
-│              Gemini AI (Free Tier)              │
-│   Risk Level · Executive Summary · Top Risks    │
-└─────────────────────────────────────────────────┘
+| Layer | Component | Details |
+|-------|-----------|---------|
+| 🖥️ Frontend | React.js | Dashboard, Scanner UI, Charts, PDF Export |
+| ⚙️ Backend | Node.js + Express | REST API, JWT Auth, Rate Limiting, Helmet |
+| 🐍 Scanner | Python 3.12 | OWASP checks, Header analysis, Redirect detection |
+| 🤖 AI Engine | Google Gemini API | Risk analysis, Executive summary, Fix recommendations |
+| 🔄 CI/CD | GitHub Actions | Auto test, build, security audit on every push |
+| 🔐 Security | GitHub GHAS | CodeQL, Dependabot, Secret scanning, Branch protection |
+
+**Flow:** `User enters URL` → `React sends to Node API` → `Python scans target` → `Gemini AI analyzes` → `Dashboard shows report + PDF`
 
 ---
 
