@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 const API = 'http://localhost:5000/api';
 const COLORS = { HIGH: '#ef4444', MEDIUM: '#f97316', LOW: '#eab308', INFO: '#3b82f6', PASS: '#22c55e' };
@@ -15,7 +17,7 @@ export default function Dashboard({ token, username, onLogout }) {
 
   const headers = { Authorization: `Bearer ${token}` };
 
-  useEffect(() => { fetchHistory(); }, []);
+  useEffect(() => { fetchHistory(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchHistory = async () => {
     try {
@@ -52,6 +54,176 @@ export default function Dashboard({ token, username, onLogout }) {
   };
 
   const getSeverityColor = (sev) => COLORS[sev] || '#64748b';
+
+  const downloadPDF = (scan) => {
+  const doc = new jsPDF();
+  const pageWidth = doc.internal.pageSize.getWidth();
+
+  // Header background
+  doc.setFillColor(15, 23, 42);
+  doc.rect(0, 0, pageWidth, 40, 'F');
+  doc.setTextColor(59, 130, 246);
+  doc.setFontSize(22);
+  doc.setFont('helvetica', 'bold');
+  doc.text('ThreatLens AI', 14, 18);
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'normal');
+  doc.text('AI-Powered Vulnerability Scan Report', 14, 28);
+  doc.setFontSize(9);
+  doc.setTextColor(180, 190, 210);
+  doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 36);
+
+  // Target Info
+  doc.setFillColor(30, 41, 59);
+  doc.rect(0, 42, pageWidth, 28, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Target URL:', 14, 53);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(96, 165, 250);
+  doc.text(scan.url, 45, 53);
+  doc.setTextColor(220, 230, 245);
+  doc.text(`Scan Date: ${new Date(scan.createdAt).toLocaleString()}`, 14, 63);
+  doc.text(`Scanned By: ${scan.user}`, 120, 63);
+
+  // Summary Cards
+  let y = 80;
+  doc.setFontSize(13);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(255, 255, 255);
+  doc.text('Executive Summary', 14, y);
+  y += 8;
+
+  const riskColor = scan.aiReport?.risk_level === 'CRITICAL' ? [239, 68, 68] :
+    scan.aiReport?.risk_level === 'HIGH' ? [249, 115, 22] :
+    scan.aiReport?.risk_level === 'MEDIUM' ? [234, 179, 8] : [34, 197, 94];
+
+  doc.setFillColor(...riskColor);
+  doc.roundedRect(14, y, 40, 18, 2, 2, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'bold');
+  doc.text('RISK LEVEL', 16, y + 6);
+  doc.setFontSize(12);
+  doc.text(scan.aiReport?.risk_level || 'N/A', 16, y + 14);
+
+  doc.setFillColor(30, 58, 138);
+  doc.roundedRect(58, y, 40, 18, 2, 2, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(8);
+  doc.text('SECURITY SCORE', 60, y + 6);
+  doc.setFontSize(12);
+  doc.text(`${scan.aiReport?.overall_score}/100`, 60, y + 14);
+
+  doc.setFillColor(127, 29, 29);
+  doc.roundedRect(102, y, 40, 18, 2, 2, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(8);
+  doc.text('HIGH ISSUES', 104, y + 6);
+  doc.setFontSize(12);
+  doc.text(`${scan.summary?.high || 0}`, 104, y + 14);
+
+  doc.setFillColor(120, 53, 15);
+  doc.roundedRect(146, y, 40, 18, 2, 2, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(8);
+  doc.text('MEDIUM ISSUES', 148, y + 6);
+  doc.setFontSize(12);
+  doc.text(`${scan.summary?.medium || 0}`, 148, y + 14);
+
+  y += 26;
+
+  // AI Summary text
+  doc.setTextColor(30, 30, 30);
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  const summaryLines = doc.splitTextToSize(scan.aiReport?.executive_summary || '', pageWidth - 28);
+  doc.text(summaryLines, 14, y);
+  y += summaryLines.length * 6 + 8;
+
+  // Quick Wins
+  if (scan.aiReport?.quick_wins?.length > 0) {
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(20, 20, 20);
+    doc.text('Quick Wins', 14, y); y += 7;
+    scan.aiReport.quick_wins.forEach(win => {
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(21, 128, 61);
+      doc.text(`✓ ${win}`, 14, y); y += 6;
+    });
+    y += 4;
+  }
+
+  // Findings Table
+  doc.setFontSize(12);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(20, 20, 20);
+  doc.text('Detailed Findings', 14, y); y += 4;
+
+  autoTable(doc, {
+    startY: y,
+    head: [['Check', 'Status', 'Severity', 'Detail']],
+    body: scan.findings.map(f => [f.check, f.status, f.severity, f.detail]),
+    headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontSize: 9, fontStyle: 'bold' },
+    bodyStyles: { fillColor: [255, 255, 255], textColor: [30, 30, 30], fontSize: 8 },
+    alternateRowStyles: { fillColor: [241, 245, 249] },
+    margin: { left: 14, right: 14 }
+  });
+
+  y = doc.lastAutoTable.finalY + 10;
+
+  // Top Risks
+  if (scan.aiReport?.top_risks?.length > 0) {
+    if (y > 220) { doc.addPage(); y = 20; }
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(20, 20, 20);
+    doc.text('Top Risks (AI Analysis)', 14, y); y += 8;
+
+    scan.aiReport.top_risks.forEach((risk, i) => {
+      if (y > 250) { doc.addPage(); y = 20; }
+      doc.setFillColor(254, 243, 199);
+      doc.roundedRect(14, y, pageWidth - 28, 8, 1, 1, 'F');
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(120, 53, 15);
+      doc.text(`${i + 1}. ${risk.risk}`, 16, y + 5.5);
+      y += 12;
+
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(185, 28, 28);
+      doc.text('Impact:', 14, y);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(40, 40, 40);
+      const impactLines = doc.splitTextToSize(risk.impact, pageWidth - 42);
+      doc.text(impactLines, 30, y);
+      y += impactLines.length * 5 + 3;
+
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(21, 128, 61);
+      doc.text('Fix:', 14, y);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(40, 40, 40);
+      const fixLines = doc.splitTextToSize(risk.fix, pageWidth - 42);
+      doc.text(fixLines, 30, y);
+      y += fixLines.length * 5 + 8;
+    });
+  }
+
+  // Footer
+  doc.setFillColor(15, 23, 42);
+  doc.rect(0, doc.internal.pageSize.getHeight() - 12, pageWidth, 12, 'F');
+  doc.setTextColor(200, 210, 230);
+  doc.setFontSize(8);
+  doc.text('Generated by ThreatLens AI — AI-Powered Vulnerability Scanner', 14, doc.internal.pageSize.getHeight() - 4);
+
+  doc.save(`ThreatLens-Report-${scan.url.replace(/https?:\/\//, '').replace(/\//g, '-')}-${Date.now()}.pdf`);
+};
 
   const getPieData = (summary) => [
     { name: 'High', value: summary.high || 0 },
@@ -105,6 +277,28 @@ export default function Dashboard({ token, username, onLogout }) {
             {/* Scan Results */}
             {currentScan && currentScan.status === 'completed' && (
               <div>
+                {/* Action Buttons */}
+<div style={{ display: 'flex', gap: '12px', marginBottom: '20px' }}>
+  <button
+    style={{ ...styles.scanBtn, background: 'linear-gradient(135deg, #059669, #047857)', padding: '10px 20px', fontSize: '13px' }}
+    onClick={() => downloadPDF(currentScan)}>
+    📄 Download PDF Report
+  </button>
+  <button
+    style={{ ...styles.scanBtn, background: 'linear-gradient(135deg, #7c3aed, #5b21b6)', padding: '10px 20px', fontSize: '13px' }}
+    onClick={() => {
+      const shareText = `ThreatLens AI Scan Report\nURL: ${currentScan.url}\nRisk: ${currentScan.aiReport?.risk_level}\nScore: ${currentScan.aiReport?.overall_score}/100\nHigh Issues: ${currentScan.summary?.high}`;
+      navigator.clipboard.writeText(shareText);
+      alert('Report summary copied to clipboard! Share it anywhere.');
+    }}>
+    🔗 Share Report
+  </button>
+  <button
+    style={{ ...styles.scanBtn, background: 'linear-gradient(135deg, #dc2626, #991b1b)', padding: '10px 20px', fontSize: '13px' }}
+    onClick={() => setCurrentScan(null)}>
+    🗑️ Clear Scan
+  </button>
+</div>
                 {/* Summary Cards */}
                 <div style={styles.cards}>
                   {[
