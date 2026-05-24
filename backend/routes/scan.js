@@ -3,6 +3,7 @@ const { v4: uuidv4 } = require('uuid');
 const { spawn } = require('child_process');
 const path = require('path');
 const verifyToken = require('../middleware/auth');
+const { analyzeWithAI } = require('../utils/gemini');
 const router = express.Router();
 
 const scanHistory = [];
@@ -22,50 +23,52 @@ router.post('/start', verifyToken, async (req, res) => {
       createdAt: new Date().toISOString(),
       user: req.user.username,
       findings: [],
-      summary: {}
+      summary: {},
+      aiReport: null
     };
     scanHistory.push(scan);
 
-    // Run Python scanner
+    res.json({ message: 'Scan started', scanId });
+
+    // Run Python scanner in background
     const scannerPath = path.join(__dirname, '..', 'scanner.py');
     const python = spawn('python', [scannerPath, url]);
 
     let output = '';
-    let errorOutput = '';
 
-    python.stdout.on('data', (data) => {
-      output += data.toString();
-    });
+    python.stdout.on('data', (data) => { output += data.toString(); });
 
-    python.stderr.on('data', (data) => {
-      errorOutput += data.toString();
-    });
-
-    python.on('close', (code) => {
+    python.on('close', async (code) => {
+      const scanIndex = scanHistory.findIndex(s => s.id === scanId);
       try {
-        // Get last JSON line from output
         const lines = output.trim().split('\n');
         const jsonLine = lines[lines.length - 1];
         const result = JSON.parse(jsonLine);
 
-        const scanIndex = scanHistory.findIndex(s => s.id === scanId);
         if (result.error) {
           scanHistory[scanIndex].status = 'failed';
           scanHistory[scanIndex].error = result.error;
-        } else {
-          scanHistory[scanIndex].status = 'completed';
-          scanHistory[scanIndex].findings = result.findings;
-          scanHistory[scanIndex].summary = result.summary;
-          scanHistory[scanIndex].completedAt = new Date().toISOString();
+          return;
         }
+
+        scanHistory[scanIndex].findings = result.findings;
+        scanHistory[scanIndex].summary = result.summary;
+        scanHistory[scanIndex].status = 'analyzing';
+
+        // Send to Gemini AI
+        console.log(`[*] Sending scan results to Gemini AI for ${url}...`);
+        const aiReport = await analyzeWithAI(result);
+        scanHistory[scanIndex].aiReport = aiReport;
+        scanHistory[scanIndex].status = 'completed';
+        scanHistory[scanIndex].completedAt = new Date().toISOString();
+        console.log(`[✓] AI analysis complete for ${url} - Risk: ${aiReport.risk_level}`);
+
       } catch (e) {
-        const scanIndex = scanHistory.findIndex(s => s.id === scanId);
         scanHistory[scanIndex].status = 'failed';
-        scanHistory[scanIndex].error = 'Scanner output parse error';
+        scanHistory[scanIndex].error = 'Processing error: ' + e.message;
       }
     });
 
-    res.json({ message: 'Scan started', scanId, scan });
   } catch (err) {
     res.status(500).json({ error: 'Failed to start scan' });
   }
