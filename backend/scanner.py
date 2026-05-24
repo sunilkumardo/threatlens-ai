@@ -63,7 +63,8 @@ def check_open_redirects(url):
         r = requests.get(test_url, allow_redirects=False, timeout=5)
         if r.status_code in [301, 302, 303, 307, 308]:
             location = r.headers.get("Location", "")
-            if "evil.com" in location:
+            parsed_location = urllib.parse.urlparse(location)
+            if parsed_location.netloc == "evil.com" or parsed_location.netloc.endswith(".evil.com"):
                 results.append({"check": "Open Redirect", "status": "FAIL", "severity": "HIGH", "detail": "Possible open redirect vulnerability detected."})
             else:
                 results.append({"check": "Open Redirect", "status": "PASS", "severity": "INFO", "detail": "No open redirect detected."})
